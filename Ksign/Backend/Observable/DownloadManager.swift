@@ -40,6 +40,9 @@ class Download: Identifiable, @unchecked Sendable, ObservableObject {
 	}
     var task: URLSessionDownloadTask?
     var resumeData: Data?
+    /// Set when the file is fetched as several parallel ranges.
+    var chunked: ChunkedDownloader?
+    var isCancelled = false
 	
 	let id: String
 	let url: URL
@@ -82,6 +85,11 @@ class DownloadManager: NSObject, ObservableObject {
     override init() {
         super.init()
         let configuration = URLSessionConfiguration.default
+        configuration.httpMaximumConnectionsPerHost = 8
+        configuration.allowsExpensiveNetworkAccess = true
+        configuration.allowsConstrainedNetworkAccess = true
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
         _session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }
     
@@ -96,18 +104,69 @@ class DownloadManager: NSObject, ObservableObject {
         print(id)
 		let download = Download(id: id, url: url)
         
-        let task = _session.downloadTask(with: url)
-        download.task = task
-        task.resume()
-        
         downloads.append(download)
 		if #available(iOS 26.0, *) {
 			BackgroundTaskManager.shared.startTask(for: id, filename: url.lastPathComponent)
 		} else {
 			_updateBackgroundAudioState()
 		}
+        _startTransfer(download)
         return download
     }
+	
+	/// Splits the file into parallel ranges when the server supports it, otherwise uses a single request.
+	private func _startTransfer(_ download: Download) {
+		Task { @MainActor [weak self] in
+			let probe = await ChunkedDownloader.probe(url: download.url)
+			guard let self, !download.isCancelled else { return }
+			if let probe {
+				self._startChunked(download, probe: probe)
+			} else {
+				self._startSingle(download)
+			}
+		}
+	}
+	
+	private func _startSingle(_ download: Download) {
+		let task = _session.downloadTask(with: download.url)
+		task.priority = URLSessionTask.highPriority
+		download.task = task
+		task.resume()
+	}
+	
+	private func _startChunked(_ download: Download, probe: ChunkedDownloadProbe) {
+		let chunked = ChunkedDownloader(probe: probe)
+		download.chunked = chunked
+		
+		chunked.onProgress = { received, total in
+			DispatchQueue.main.async {
+				download.progress = total > 0 ? Double(received) / Double(total) : 0
+				download.bytesDownloaded = received
+				download.totalBytes = total
+				if #available(iOS 26.0, *) {
+					BackgroundTaskManager.shared.updateProgress(for: download.id, progress: download.overallProgress)
+				}
+			}
+		}
+		
+		chunked.onCompletion = { [weak self] result in
+			DispatchQueue.main.async {
+				guard let self, !download.isCancelled else { return }
+				download.chunked = nil
+				switch result {
+				case .success(let fileURL):
+					self._complete(download, location: fileURL, suggestedName: probe.suggestedFilename)
+				case .failure(let error):
+					// Ranges did not work out: retry as a plain download.
+					print("Chunked download failed (\(error.localizedDescription)), falling back")
+					download.progress = 0
+					download.bytesDownloaded = 0
+					self._startSingle(download)
+				}
+			}
+		}
+		chunked.start()
+	}
 	
 	func startArchive(
 		from url: URL,
@@ -120,6 +179,8 @@ class DownloadManager: NSObject, ObservableObject {
 	}
     
     func resumeDownload(_ download: Download) {
+        // A chunked transfer retries its own ranges, and one still probing has nothing to resume yet.
+        guard download.chunked == nil else { return }
         if let resumeData = download.resumeData {
             let task = _session.downloadTask(withResumeData: resumeData)
             download.task = task
@@ -134,6 +195,8 @@ class DownloadManager: NSObject, ObservableObject {
     }
     
     func cancelDownload(_ download: Download) {
+        download.isCancelled = true
+        download.chunked?.cancel()
         download.task?.cancel()
         
         if let index = downloads.firstIndex(where: { $0.id == download.id }) {
@@ -214,7 +277,11 @@ extension DownloadManager: URLSessionDownloadDelegate {
 	
 	func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
 		guard let download = getDownloadTask(by: downloadTask) else { return }
-		
+		_complete(download, location: location, suggestedName: downloadTask.response?.suggestedFilename)
+	}
+	
+	/// Moves the finished file into place and hands it to the importer.
+	fileprivate func _complete(_ download: Download, location: URL, suggestedName: String?) {
 		var downloadDir: URL
 		if !OptionsManager.shared.options.saveAppStoreDownloadsToDownloadsFolder {
 			let tempDirectory = FileManager.default.temporaryDirectory
@@ -225,7 +292,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
 		
 		do {
 			try FileManager.default.createDirectoryIfNeeded(at: downloadDir)
-			let suggestedFileName = downloadTask.response?.suggestedFilename ?? download.fileName
+			let suggestedFileName = suggestedName ?? download.fileName
 			let destinationURL = downloadDir.appendingPathComponent(suggestedFileName)
 			try FileManager.default.removeFileIfNeeded(at: destinationURL)
 			try FileManager.default.moveItem(at: location, to: destinationURL)
