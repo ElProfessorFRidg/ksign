@@ -15,6 +15,7 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
     @Binding var sortOption: SourceAppsView.SortOption
     @Binding var sortAscending: Bool
     var onSelect: (SourceAppsView.SourceAppRoute) -> Void
+    var onSelectNews: (ASRepository.News) -> Void = { _ in }
     
     func makeUIView(context: Context) -> UITableView {
         let tableView = UITableView(frame: .zero, style: .plain)
@@ -35,7 +36,8 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
             let news = firstSource.news,
             !news.isEmpty
         {
-            let header = UIHostingController(rootView: SourceNewsView(news: news))
+            let onSelectNews = self.onSelectNews
+            let header = UIHostingController(rootView: SourceNewsView(news: news, onSelect: onSelectNews))
             header.view.translatesAutoresizingMaskIntoConstraints = true
             header.view.backgroundColor = .clear
             let fixedHeight: CGFloat = 161

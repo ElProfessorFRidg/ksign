@@ -34,6 +34,7 @@ struct SourceAppsView: View {
     
     @State private var _sortOption: SortOption = .default
     @State private var _selectedRoute: SourceAppRoute?
+    @State private var _selectedNews: ASRepository.News?
     
     @State var isLoading = true
     @State var hasLoadedOnce = false
@@ -72,7 +73,8 @@ struct SourceAppsView: View {
                     searchText: $_searchText,
                     sortOption: $_sortOption,
                     sortAscending: $_sortAscending,
-                    onSelect: {self._selectedRoute = $0}
+                    onSelect: {self._selectedRoute = $0},
+                    onSelectNews: { self._selectedNews = $0 }
                 )
                 .ignoresSafeArea()
             } else {
@@ -160,6 +162,17 @@ struct SourceAppsView: View {
         }
         .navigationDestinationIfAvailable(item: $_selectedRoute) { route in
             SourceAppsDetailView(source: route.source, app: route.app)
+        }
+        .sheet(item: $_selectedNews) { news in
+            let source = _sources?.first { $0.news?.contains(news) == true }
+            let app = news.appID.flatMap { id in source?.apps.first { $0.id == id } }
+            SourceNewsDetailView(news: news, app: app) {
+                guard let source, let app else { return }
+                _selectedNews = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    _selectedRoute = SourceAppRoute(source: source, app: app)
+                }
+            }
         }
         
     }
