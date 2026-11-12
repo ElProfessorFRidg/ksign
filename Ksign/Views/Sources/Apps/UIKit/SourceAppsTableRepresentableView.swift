@@ -35,7 +35,18 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
             let news = firstSource.news,
             !news.isEmpty
         {
-            let header = UIHostingController(rootView: SourceNewsView(news: news))
+            let onSelect = self.onSelect
+            let header = UIHostingController(rootView: SourceNewsView(news: news) { item in
+                // Open the app the news points to, otherwise its link.
+                if
+                    let appID = item.appID,
+                    let app = firstSource.apps.first(where: { $0.id == appID })
+                {
+                    onSelect(SourceAppsView.SourceAppRoute(source: firstSource, app: app))
+                } else if let url = item.url {
+                    UIApplication.shared.open(url)
+                }
+            })
             header.view.translatesAutoresizingMaskIntoConstraints = true
             header.view.backgroundColor = .clear
             let fixedHeight: CGFloat = 161

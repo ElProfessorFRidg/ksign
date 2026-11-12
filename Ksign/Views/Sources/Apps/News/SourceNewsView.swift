@@ -13,6 +13,7 @@ struct SourceNewsView: View {
 	@State var hasLoadedInitialData = false
 	
 	var news: [ASRepository.News]?
+	var onSelect: ((ASRepository.News) -> Void)? = nil
 	
 	var body: some View {
 		VStack {
@@ -24,6 +25,8 @@ struct SourceNewsView: View {
 					LazyHStack(spacing: 10) {
 						ForEach(news.reversed(), id: \.id) { new in
 							SourceNewsCardView(new: new)
+								.contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+								.onTapGesture { onSelect?(new) }
 						}
 					}
 					.padding(.horizontal, 21)
