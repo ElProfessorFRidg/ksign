@@ -1,13 +1,22 @@
-name: Beta Build
+name: Build & Release
 
+# - push on main             -> official release  vX.Y.Z
+# - push on any other branch -> prerelease        vX.Y.Z-beta.N
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Beta
+    name: Build & Release
     runs-on: macos-26
 
     steps:
@@ -17,61 +26,106 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Compute version
+        id: version
+        run: |
+          git fetch --tags --force
+
+          # Last official tag (vX.Y.Z, betas excluded)
+          LAST=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -Ev -- '-beta' | head -1 || true)
+
+          if [ -n "$LAST" ]; then
+            BASE="${LAST#v}"
+            LOG_ARGS=("$LAST..HEAD")
+          else
+            # No tag yet: start from the project's MARKETING_VERSION
+            BASE=$(grep -m1 'MARKETING_VERSION' Ksign.xcodeproj/project.pbxproj | sed -E 's/.*= *([0-9.]+);.*/\1/')
+            LOG_ARGS=(--max-count=20 HEAD)
+          fi
+
+          IFS=. read -r MAJOR MINOR PATCH <<< "$BASE"
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+
+          # Big change (feat:, BREAKING, [minor]) -> 0.1.0 bump, otherwise 0.0.1 bump
+          if git log "${LOG_ARGS[@]}" --pretty=format:'%s%n%b' \
+              | grep -Eiq '^feat(\(.+\))?!?:|^breaking|BREAKING CHANGE|\[minor\]'; then
+            NEXT="$MAJOR.$((MINOR + 1)).0"
+            BUMP=minor
+          else
+            NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
+            BUMP=patch
+          fi
+
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TAG="v$NEXT"
+            PRERELEASE=false
+          else
+            N=$(git tag --list "v$NEXT-beta.*" | wc -l | tr -d ' ')
+            TAG="v$NEXT-beta.$((N + 1))"
+            PRERELEASE=true
+          fi
+
+          echo "last=$LAST"             >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT"             >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"               >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Version: $TAG ($BUMP bump from ${LAST:-$BASE})"
+
+      - name: Set app version
+        run: |
+          sed -i '' -E "s/MARKETING_VERSION = [0-9.]+;/MARKETING_VERSION = ${{ steps.version.outputs.next }};/" Ksign.xcodeproj/project.pbxproj
+
       - name: Build
         run: |
           make
 
-      - name: Update Beta Release
+      - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          LATEST_OFFICIAL_TAG=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null || echo "")
-          COMMIT_MSG=$(git log -1 --pretty=%B)
-          echo "## Commit: \`$COMMIT_MSG\` (${{ github.sha }})" >> release_notes.md
-          echo "### New in this build (Compared to $LATEST_OFFICIAL_TAG):" >> release_notes.md
-            
-          CHANGES=$(git log --pretty=format:"* %s (%h)" ${LATEST_OFFICIAL_TAG}..HEAD)
-            
-          if [ -z "$CHANGES" ]; then
-            echo "* No code changes since $LATEST_OFFICIAL_TAG" >> release_notes.md
-          else
-            echo "$CHANGES" >> release_notes.md
-          fi
-          
-          echo "### Commit SHA: ${{ github.sha }}" >> release_notes.md
-          
-          cat release_notes.md
+          TAG="${{ steps.version.outputs.tag }}"
+          LAST="${{ steps.version.outputs.last }}"
+          BRANCH="${{ github.ref_name }}"
 
-          gh release delete beta --cleanup-tag -y || true
-          
-          gh release create beta "packages/Ksign.ipa" \
-            --title "Latest Beta Build" \
-            --notes "$(cat release_notes.md)" \
-            --prerelease \
-            --target ${{ github.sha }}
+          {
+            echo "## $TAG"
+            echo "Branch: \`$BRANCH\` · Commit: \`${{ github.sha }}\`"
+            echo
+            echo "### Changes${LAST:+ since $LAST}"
+            if [ -n "$LAST" ]; then
+              git log --pretty=format:"* %s (%h)" "$LAST..HEAD"
+            else
+              git log --max-count=20 --pretty=format:"* %s (%h)"
+            fi
+          } > release_notes.md
+
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            FLAGS=(--prerelease)
+          else
+            FLAGS=(--latest)
+          fi
+
+          gh release create "$TAG" "packages/Ksign.ipa" \
+            --title "$TAG" \
+            --notes-file release_notes.md \
+            --target "${{ github.sha }}" \
+            "${FLAGS[@]}"
 
       - name: Notify Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          COMMIT_MSG=$(git log -1 --pretty=%B)
-          
-          REPO="${{ github.repository }}"
-          TAG="beta"
-          FILENAME="Ksign.ipa"
-          
-          DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$FILENAME"
-          RELEASE_URL="https://github.com/$REPO/releases/tag/$TAG"
-          
-          echo "Sending link to Discord..."
-          
-          jq -n \
-            --arg commit_msg "$COMMIT_MSG" \
-            --arg download_url "$DOWNLOAD_URL" \
-            --arg release_url "$RELEASE_URL" \
-            '{content: "**New Beta Released!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
+          [ -z "$DISCORD_WEBHOOK" ] && exit 0
 
-          curl -v \
-            -H "Content-Type: application/json" \
-            -d @discord_payload.json \
-            "$DISCORD_WEBHOOK"
+          TAG="${{ steps.version.outputs.tag }}"
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          REPO="${{ github.repository }}"
+
+          jq -n \
+            --arg tag "$TAG" \
+            --arg commit_msg "$COMMIT_MSG" \
+            --arg download_url "https://github.com/$REPO/releases/download/$TAG/Ksign.ipa" \
+            --arg release_url "https://github.com/$REPO/releases/tag/$TAG" \
+            '{content: "**New release \($tag)!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
+
+          curl -sS -H "Content-Type: application/json" -d @discord_payload.json "$DISCORD_WEBHOOK"
