@@ -18,6 +18,7 @@ struct SourceAppsDetailView: View {
 	@State var cancellable: AnyCancellable? // Combine
 	@State private var _isScreenshotPreviewPresented: Bool = false
 	@State private var _selectedScreenshotIndex: Int = 0
+	@StateObject private var _itunes = ITunesLoader()
 	
 	var currentDownload: Download? {
 		downloadManager.getDownload(by: app.currentUniqueId)
@@ -67,7 +68,7 @@ struct SourceAppsDetailView: View {
 				_infoPills(app: app)
 				Divider()
                 
-                if let screenshotURLs = app.screenshotURLs {
+                if let screenshotURLs = _screenshotURLs {
                     NBSection(.localized("Screenshots")) {
                         _screenshots(screenshotURLs: screenshotURLs)
                     }
@@ -99,7 +100,23 @@ struct SourceAppsDetailView: View {
 					Divider()
 				}
 				
-				if let appDesc = app.localizedDescription {
+				if let store = _itunes.app {
+					ITunesRatingView(app: store)
+					ITunesReviewsView(reviews: _itunes.reviews)
+				}
+				
+				if
+					let storeNotes = _itunes.app?.releaseNotes,
+					app.currentAppVersion?.localizedDescription == nil
+				{
+					NBSection(.localized("What's New")) {
+						ExpandableText(text: storeNotes, lineLimit: 4)
+							.frame(maxWidth: .infinity, alignment: .leading)
+					}
+					Divider()
+				}
+				
+				if let appDesc = app.localizedDescription ?? _itunes.app?.description {
 					NBSection(.localized("Description")) {
 						VStack(alignment: .leading, spacing: 2) {
 							ExpandableText(text: appDesc, lineLimit: 3)
@@ -138,6 +155,10 @@ struct SourceAppsDetailView: View {
 						
 						if let bundleId = app.id {
 							_infoRow(title: .localized("Identifier"), value: bundleId)
+						}
+						
+						if let store = _itunes.app {
+							ITunesInfoRows(app: store)
 						}
 					}
                 }
@@ -201,8 +222,11 @@ struct SourceAppsDetailView: View {
 				UIActivityViewController.show(activityItems: [sharedString])
 			}
 		}
+		.task {
+			await _itunes.load(bundleId: app.id)
+		}
 		.fullScreenCover(isPresented: $_isScreenshotPreviewPresented) {
-			if let screenshotURLs = app.screenshotURLs {
+			if let screenshotURLs = _screenshotURLs {
 				ScreenshotPreviewView(
 					screenshotURLs: screenshotURLs,
 					initialIndex: _selectedScreenshotIndex
@@ -210,6 +234,14 @@ struct SourceAppsDetailView: View {
 			}
 		}
     }
+	
+	/// Screenshots provided by the source, or the App Store ones when the source has none.
+	private var _screenshotURLs: [URL]? {
+		if let urls = app.screenshotURLs, !urls.isEmpty { return urls }
+		guard let store = _itunes.app else { return nil }
+		let urls = store.screenshotURLs.isEmpty ? store.ipadScreenshotURLs : store.screenshotURLs
+		return urls.isEmpty ? nil : urls
+	}
 	
 	var standardIcon: some View {
 		Image("App_Unknown").appIconStyle(size: 111, isCircle: false)

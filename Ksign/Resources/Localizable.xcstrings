@@ -62,7 +62,7 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%LLD App"
+                  "value" : "%lld App"
                 }
               },
               "other" : {
@@ -116,13 +116,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "% application LLD"
+                  "value" : "%lld application"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "% Applications LLD"
+                  "value" : "%lld applications"
                 }
               }
             }
@@ -140,7 +140,7 @@
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%приложения LLD"
+                  "value" : "%lld приложения"
                 }
               }
             }
@@ -241,7 +241,7 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%LLD DAY"
+                  "value" : "%lld Tag"
                 }
               },
               "other" : {
@@ -295,13 +295,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "% LLD Day"
+                  "value" : "%lld jour"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "% de jours LLD"
+                  "value" : "%lld jours"
                 }
               }
             }
@@ -313,13 +313,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%дня"
+                  "value" : "%lld дня"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%дни"
+                  "value" : "%lld дней"
                 }
               }
             }
@@ -355,7 +355,7 @@
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%LLD ngày"
+                  "value" : "%lld ngày"
                 }
               }
             }
