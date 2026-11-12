@@ -241,7 +241,7 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld Tage"
+                  "value" : "%lld Tag"
                 }
               },
               "other" : {
