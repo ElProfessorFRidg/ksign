@@ -9,6 +9,8 @@ jobs:
   build:
     name: Build Beta
     runs-on: macos-26
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Code
@@ -28,9 +30,13 @@ jobs:
           LATEST_OFFICIAL_TAG=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null || echo "")
           COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "## Commit: \`$COMMIT_MSG\` (${{ github.sha }})" >> release_notes.md
-          echo "### New in this build (Compared to $LATEST_OFFICIAL_TAG):" >> release_notes.md
-            
-          CHANGES=$(git log --pretty=format:"* %s (%h)" ${LATEST_OFFICIAL_TAG}..HEAD)
+          if [ -n "$LATEST_OFFICIAL_TAG" ]; then
+            echo "### New in this build (Compared to $LATEST_OFFICIAL_TAG):" >> release_notes.md
+            CHANGES=$(git log --pretty=format:"* %s (%h)" "$LATEST_OFFICIAL_TAG..HEAD")
+          else
+            echo "### Recent changes (no official tag found):" >> release_notes.md
+            CHANGES=$(git log -20 --pretty=format:"* %s (%h)")
+          fi
             
           if [ -z "$CHANGES" ]; then
             echo "* No code changes since $LATEST_OFFICIAL_TAG" >> release_notes.md
@@ -46,7 +52,7 @@ jobs:
           
           gh release create beta "packages/Ksign.ipa" \
             --title "Latest Beta Build" \
-            --notes "$(cat release_notes.md)" \
+            --notes-file release_notes.md \
             --prerelease \
             --target ${{ github.sha }}
 
