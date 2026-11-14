@@ -447,21 +447,43 @@ extension ASRepository {
         public var caption: String
         public var tintColor: Color?
         public var imageURL: URL?
+        public var imageURLs: [URL]
         public var url: URL?
         public var appID: App.ID?
         public var date: DateParsed?
         public var notify: Bool
 
+        public var allImageURLs: [URL] {
+            var urls = imageURLs
+            if let imageURL, !urls.contains(imageURL) {
+                urls.insert(imageURL, at: 0)
+            }
+            return urls
+        }
+
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.id = try container.decode(String.self, forKey: .id)
+            self.id = try container.decodeIfPresent(String.self, forKey: .id)
+                ?? container.decode(String.self, forKey: .idAlias)
             self.title = try container.decode(String.self, forKey: .title)
-            self.caption = try container.decode(String.self, forKey: .caption)
+            self.caption = try container.decodeIfPresent(String.self, forKey: .caption)
+                ?? container.decodeIfPresent(String.self, forKey: .description)
+                ?? ""
             self.tintColor = try container.decodeIfPresent(
                 Color.self,
                 forKey: .tintColor
             )
-            self.imageURL = try container.decodeIfPresent(URL.self, forKey: .imageURL)
+
+            let imageURL = (try? container.decodeIfPresent(URL.self, forKey: .imageURL))
+                ?? (try? container.decodeIfPresent(URL.self, forKey: .image))
+                ?? (try? container.decodeIfPresent(URL.self, forKey: .bannerURL))
+            let imageURLs = (try? container.decode([URL].self, forKey: .imageURLs))
+                ?? (try? container.decode([URL].self, forKey: .screenshotURLs))
+                ?? (try? container.decode([URL].self, forKey: .images))
+                ?? (try? container.decode([ImageReference].self, forKey: .screenshots).map(\.url))
+                ?? []
+            self.imageURL = imageURL ?? imageURLs.first
+            self.imageURLs = imageURLs
             self.url = try container.decodeIfPresent(URL.self, forKey: .url)
             self.appID = try container.decodeIfPresent(App.ID.self, forKey: .appID)
             self.date = try container.decodeIfPresent(DateParsed.self, forKey: .date)
@@ -469,9 +491,31 @@ extension ASRepository {
                 try container.decodeIfPresent(Bool.self, forKey: .notify) ?? false
         }
 
+        private struct ImageReference: Decodable {
+            let url: URL
+
+            init(from decoder: any Decoder) throws {
+                if let value = try? decoder.singleValueContainer().decode(URL.self) {
+                    self.url = value
+                    return
+                }
+
+                let container = try decoder.container(keyedBy: ImageReferenceKeys.self)
+                self.url = try container.decodeIfPresent(URL.self, forKey: .url)
+                    ?? container.decode(URL.self, forKey: .imageURL)
+            }
+        }
+
+        private enum ImageReferenceKeys: String, CodingKey {
+            case url, imageURL
+        }
+
         public enum CodingKeys: String, CodingKey {
             case id = "identifier"
-            case title, caption, tintColor, imageURL, url, appID, date, notify
+            case idAlias = "id"
+            case title, caption, description, tintColor, imageURL, image, bannerURL
+            case imageURLs, screenshotURLs, images, screenshots
+            case url, appID, date, notify
         }
     }
 }
