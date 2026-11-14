@@ -200,7 +200,7 @@ extension ASRepository {
                     return
                 }
                 if let values = try? decoder.singleValueContainer().decode([ScreenshotReference].self) {
-                    self.iPhone = values.map(\\.url)
+                    self.iPhone = values.map(\.url)
                     self.iPad = []
                     return
                 }
@@ -215,7 +215,7 @@ extension ASRepository {
                 forKey key: CodingKeys
             ) -> [URL] {
                 (try? container.decode([URL].self, forKey: key))
-                    ?? (try? container.decode([ScreenshotReference].self, forKey: key).map(\\.url))
+                    ?? (try? container.decode([ScreenshotReference].self, forKey: key).map(\.url))
                     ?? []
             }
 
@@ -514,10 +514,10 @@ extension ASRepository {
             let imageURL = (try? container.decodeIfPresent(URL.self, forKey: .imageURL))
                 ?? (try? container.decodeIfPresent(URL.self, forKey: .image))
                 ?? (try? container.decodeIfPresent(URL.self, forKey: .bannerURL))
-            let imageURLs = (try? container.decode([URL].self, forKey: .imageURLs))
-                ?? (try? container.decode([URL].self, forKey: .screenshotURLs))
-                ?? (try? container.decode([URL].self, forKey: .images))
-                ?? (try? container.decode([ImageReference].self, forKey: .screenshots).map(\.url))
+            let imageURLs = Self.decodeImageURLs(from: container, forKey: .imageURLs)
+                ?? Self.decodeImageURLs(from: container, forKey: .screenshotURLs)
+                ?? Self.decodeImageURLs(from: container, forKey: .images)
+                ?? Self.decodeImageURLs(from: container, forKey: .screenshots)
                 ?? []
             self.imageURL = imageURL ?? imageURLs.first
             self.imageURLs = imageURLs
@@ -526,6 +526,19 @@ extension ASRepository {
             self.date = try container.decodeIfPresent(DateParsed.self, forKey: .date)
             self.notify =
                 try container.decodeIfPresent(Bool.self, forKey: .notify) ?? false
+        }
+
+        private static func decodeImageURLs(
+            from container: KeyedDecodingContainer<CodingKeys>,
+            forKey key: CodingKeys
+        ) -> [URL]? {
+            if let urls = try? container.decode([URL].self, forKey: key) {
+                return urls
+            }
+            if let references = try? container.decode([ImageReference].self, forKey: key) {
+                return references.map(\.url)
+            }
+            return nil
         }
 
         private struct ImageReference: Decodable {
