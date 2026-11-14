@@ -44,9 +44,17 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 
 		try _fileManager.removeFileIfNeeded(at: destinationURL)
 		
-		try _fileManager.copyItem(at: _ipa, to: destinationURL)
+		// A file freshly downloaded to the temp folder is ours: move it instead of copying hundreds of MB.
+		let tempDownloads = _fileManager.temporaryDirectory
+			.appendingPathComponent("FeatherDownloads", isDirectory: true)
+			.standardizedFileURL.path
+		if _ipa.deletingLastPathComponent().standardizedFileURL.path == tempDownloads {
+			try _fileManager.moveItem(at: _ipa, to: destinationURL)
+		} else {
+			try _fileManager.copyItem(at: _ipa, to: destinationURL)
+		}
 		_ipa = destinationURL
-		print("[\(_uuid)] File copied to: \(_ipa.path)")
+		print("[\(_uuid)] File ready at: \(_ipa.path)")
 	}
 	
 	func extract() async throws {
