@@ -237,7 +237,7 @@ struct SourceAppsDetailView: View {
 	
 	/// Screenshots provided by the source, or the App Store ones when the source has none.
 	private var _screenshotURLs: [URL]? {
-		if let urls = app.screenshotURLs, !urls.isEmpty { return urls }
+		if !app.currentScreenshotURLs.isEmpty { return app.currentScreenshotURLs }
 		guard let store = _itunes.app else { return nil }
 		let urls = store.screenshotURLs.isEmpty ? store.ipadScreenshotURLs : store.screenshotURLs
 		return urls.isEmpty ? nil : urls
