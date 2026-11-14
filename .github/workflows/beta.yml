@@ -32,7 +32,7 @@ jobs:
           git fetch --tags --force
 
           # Last official tag (vX.Y.Z, betas excluded)
-          LAST=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -Ev -- '-beta' | head -1 || true)
+          LAST=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
 
           if [ -n "$LAST" ]; then
             BASE="${LAST#v}"
@@ -47,8 +47,8 @@ jobs:
           MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
 
           # Big change (feat:, BREAKING, [minor]) -> 0.1.0 bump, otherwise 0.0.1 bump
-          if git log "${LOG_ARGS[@]}" --pretty=format:'%s%n%b' \
-              | grep -Eiq '^feat(\(.+\))?!?:|^breaking|BREAKING CHANGE|\[minor\]'; then
+          COMMIT_LOG=$(git log "${LOG_ARGS[@]}" --pretty=format:'%s%n%b')
+          if grep -Eiq '^feat(\(.+\))?!?:|^breaking|BREAKING CHANGE|\[minor\]' <<< "$COMMIT_LOG"; then
             NEXT="$MAJOR.$((MINOR + 1)).0"
             BUMP=minor
           else
@@ -56,11 +56,27 @@ jobs:
             BUMP=patch
           fi
 
+          # Continue the version already released as a beta.
+          LATEST_BETA=$(git tag --list 'v*-beta.*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$' | head -1 || true)
+          if [ -n "$LATEST_BETA" ]; then
+            BETA_BASE="${LATEST_BETA#v}"
+            BETA_BASE="${BETA_BASE%-beta.*}"
+            IFS=. read -r BETA_MAJOR BETA_MINOR BETA_PATCH <<< "$BETA_BASE"
+            IFS=. read -r NEXT_MAJOR NEXT_MINOR NEXT_PATCH <<< "$NEXT"
+            if (( BETA_MAJOR > NEXT_MAJOR ||
+                  (BETA_MAJOR == NEXT_MAJOR && BETA_MINOR > NEXT_MINOR) ||
+                  (BETA_MAJOR == NEXT_MAJOR && BETA_MINOR == NEXT_MINOR && BETA_PATCH > NEXT_PATCH) )); then
+              NEXT="$BETA_BASE"
+            fi
+          fi
+
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             TAG="v$NEXT"
             PRERELEASE=false
           else
-            N=$(git tag --list "v$NEXT-beta.*" | wc -l | tr -d ' ')
+            N=$(git tag --list "v$NEXT-beta.*" --sort=-v:refname | head -1)
+            N="${N##*.}"
+            N=${N:-0}
             TAG="v$NEXT-beta.$((N + 1))"
             PRERELEASE=true
           fi

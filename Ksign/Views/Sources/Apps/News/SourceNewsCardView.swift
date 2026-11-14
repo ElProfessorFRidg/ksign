@@ -18,20 +18,25 @@ struct SourceNewsCardView: View {
 				Color.gray.opacity(0.2)
 			}()
 			
-			if let iconURL = new.imageURL {
-				LazyImage(url: iconURL) { state in
-					if let image = state.image {
-						image
-							.resizable()
-							.aspectRatio(contentMode: .fill)
-							.frame(width: 250, height: 150)
-							.clipped()
-					} else {
-						placeholderView
+			if new.allImageURLs.isEmpty {
+				placeholderView
+			} else {
+				TabView {
+					ForEach(new.allImageURLs.indices, id: \.self) { index in
+						LazyImage(url: new.allImageURLs[index]) { state in
+							if let image = state.image {
+								image
+									.resizable()
+									.aspectRatio(contentMode: .fill)
+									.frame(width: 250, height: 150)
+									.clipped()
+							} else {
+								placeholderView
+							}
+						}
 					}
 				}
-			} else {
-				placeholderView
+				.tabViewStyle(.page(indexDisplayMode: new.allImageURLs.count > 1 ? .always : .never))
 			}
 			
 			LinearGradient(

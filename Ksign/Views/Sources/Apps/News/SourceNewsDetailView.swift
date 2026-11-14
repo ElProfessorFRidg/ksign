@@ -11,6 +11,8 @@ import NukeUI
 /// Full content of a news item: image, title, date, caption and its actions.
 struct SourceNewsDetailView: View {
 	@Environment(\.dismiss) private var dismiss
+	@State private var selectedImageIndex = 0
+	@State private var isImagePreviewPresented = false
 	
 	let news: ASRepository.News
 	/// The app the news points to, when it exists in the source.
@@ -73,6 +75,12 @@ struct SourceNewsDetailView: View {
 			}
 		}
 		.presentationDetents([.medium, .large])
+		.fullScreenCover(isPresented: $isImagePreviewPresented) {
+			ScreenshotPreviewView(
+				screenshotURLs: news.allImageURLs,
+				initialIndex: selectedImageIndex
+			)
+		}
 	}
 	
 	@ViewBuilder
@@ -80,14 +88,24 @@ struct SourceNewsDetailView: View {
 		ZStack(alignment: .bottomLeading) {
 			(news.tintColor ?? Color.secondary).opacity(0.3)
 			
-			if let imageURL = news.imageURL {
-				LazyImage(url: imageURL) { state in
-					if let image = state.image {
-						image
-							.resizable()
-							.aspectRatio(contentMode: .fill)
+			if !news.allImageURLs.isEmpty {
+				TabView(selection: $selectedImageIndex) {
+					ForEach(news.allImageURLs.indices, id: \.self) { index in
+						LazyImage(url: news.allImageURLs[index]) { state in
+							if let image = state.image {
+								image
+									.resizable()
+									.aspectRatio(contentMode: .fit)
+							} else {
+								Color.gray.opacity(0.2)
+							}
+						}
+						.tag(index)
+						.contentShape(Rectangle())
+						.onTapGesture { isImagePreviewPresented = true }
 					}
 				}
+				.tabViewStyle(.page(indexDisplayMode: news.allImageURLs.count > 1 ? .always : .never))
 			}
 		}
 		.frame(height: 200)

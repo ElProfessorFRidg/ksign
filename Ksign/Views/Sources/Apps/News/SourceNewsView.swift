@@ -23,7 +23,7 @@ struct SourceNewsView: View {
 			{
 				ScrollView(.horizontal, showsIndicators: false) {
 					LazyHStack(spacing: 10) {
-						ForEach(news.reversed(), id: \.id) { new in
+						ForEach(newestFirstNews, id: \.id) { new in
 							SourceNewsCardView(new: new)
 								.contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 								.onTapGesture { onSelect?(new) }
@@ -45,6 +45,21 @@ struct SourceNewsView: View {
 		}
 	}
 	
+	private var newestFirstNews: [ASRepository.News] {
+		news?.enumerated().sorted { lhs, rhs in
+			guard let lhsDate = lhs.element.date?.date else {
+				return false
+			}
+			guard let rhsDate = rhs.element.date?.date else {
+				return true
+			}
+			if lhsDate == rhsDate {
+				return lhs.offset < rhs.offset
+			}
+			return lhsDate > rhsDate
+		}.map(\.element) ?? []
+	}
+
 	private func _load() {
 		withAnimation(.easeIn(duration: 0.3)) {
 			isLoading = false
