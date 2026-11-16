@@ -70,6 +70,7 @@ struct SourceAppsView: View {
             {
                 SourceAppsTableRepresentableView(
                     sources: _sources,
+                    revision: viewModel.revision,
                     searchText: $_searchText,
                     sortOption: $_sortOption,
                     sortAscending: $_sortAscending,
@@ -77,6 +78,18 @@ struct SourceAppsView: View {
                     onSelectNews: { self._selectedNews = $0 }
                 )
                 .ignoresSafeArea()
+            } else if viewModel.isFinished, let error = _loadError {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                        .font(.largeTitle)
+                    Text(error)
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                    Button(.localized("Retry")) {
+                        Task { await viewModel.fetchSources(_allSources, refresh: true) }
+                    }
+                }
+                .padding()
             } else {
                 if #available(iOS 17, *) {
                     ContentUnavailableView {
@@ -148,13 +161,10 @@ struct SourceAppsView: View {
             }
         }
         .onAppear {
-            if !hasLoadedOnce, viewModel.isFinished {
-                _load()
-                hasLoadedOnce = true
-            }
+            _load()
             _sortOption = SortOption(rawValue: _sortOptionRawValue) ?? .default
         }
-        .onChange(of: viewModel.isFinished) { _ in
+        .onReceive(viewModel.$revision) { _ in
             _load()
         }
         .onChange(of: _sortOption) { newValue in
@@ -178,15 +188,13 @@ struct SourceAppsView: View {
     }
     
     private func _load() {
-        isLoading = true
-        
-        Task {
-            let loadedSources = object.compactMap { viewModel.sources[$0] }
-            _sources = loadedSources
-            withAnimation(.easeIn(duration: 0.2)) {
-                isLoading = false
-            }
-        }
+        _sources = object.compactMap { viewModel.sources[$0] }
+    }
+
+    private var _loadError: String? {
+        object.compactMap { source in
+            source.sourceURL.flatMap { viewModel.errors[$0] }
+        }.first
     }
     
     struct SourceAppRoute: Identifiable, Hashable {
@@ -242,3 +250,4 @@ extension View {
         }
     }
 }
+

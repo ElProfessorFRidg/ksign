@@ -11,6 +11,7 @@ import AltSourceKit
 // MARK: - Representable
 struct SourceAppsTableRepresentableView: UIViewRepresentable {
     var sources: [ASRepository]
+    var revision: Int = 0
     @Binding var searchText: String
     @Binding var sortOption: SourceAppsView.SortOption
     @Binding var sortAscending: Bool
@@ -30,24 +31,7 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
             tableView.allowsSelection = false
         }
         
-        if
-            let firstSource = sources.first,
-            sources.count == 1,
-            let news = firstSource.news,
-            !news.isEmpty
-        {
-            let onSelectNews = self.onSelectNews
-            let header = UIHostingController(rootView: SourceNewsView(news: news, onSelect: onSelectNews))
-            header.view.translatesAutoresizingMaskIntoConstraints = true
-            header.view.backgroundColor = .clear
-            let fixedHeight: CGFloat = 161
-            let width = tableView.bounds.width
-            header.view.frame = CGRect(origin: .zero, size: CGSize(width: width, height: fixedHeight))
-
-            DispatchQueue.main.async {
-                tableView.tableHeaderView = header.view
-            }
-        }
+        context.coordinator.updateNewsHeader(in: tableView, onSelectNews: onSelectNews)
         
         tableView.alpha = 0
         
@@ -61,15 +45,20 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
     func updateUIView(_ tableView: UITableView, context: Context) {
         context.coordinator.uiTableView = tableView
         
-        let sourcesChanged = context.coordinator.sources != sources
+        let sourcesChanged = context.coordinator.revision != revision
         let searchChanged = context.coordinator.searchText != searchText
         let sortOptionChanged = context.coordinator.sortOption != sortOption
         let sortDirectionChanged = context.coordinator.sortAscending != sortAscending
         
+        context.coordinator.revision = revision
         context.coordinator.sources = sources
         context.coordinator.searchText = searchText
         context.coordinator.sortOption = sortOption
         context.coordinator.sortAscending = sortAscending
+        
+        if sourcesChanged {
+            context.coordinator.updateNewsHeader(in: tableView, onSelectNews: onSelectNews)
+        }
         
         if sourcesChanged || searchChanged || sortOptionChanged || sortDirectionChanged {
             context.coordinator.invalidateCache()
@@ -90,10 +79,30 @@ struct SourceAppsTableRepresentableView: UIViewRepresentable {
 // MARK: - Representable Extension: Coordinator
 extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
     var sources: [ASRepository]
+    var revision: Int = -1
     var searchText: String
     var sortOption: SourceAppsView.SortOption
     var sortAscending: Bool
     let onSelect: (SourceAppsView.SourceAppRoute) -> Void
+    private var newsHeader: UIHostingController<SourceNewsView>?
+
+    func updateNewsHeader(in tableView: UITableView, onSelectNews: @escaping (ASRepository.News) -> Void) {
+        guard sources.count == 1, let news = sources.first?.news, !news.isEmpty else {
+            tableView.tableHeaderView = nil
+            newsHeader = nil
+            return
+        }
+        let rootView = SourceNewsView(news: news, onSelect: onSelectNews)
+        let header = newsHeader ?? UIHostingController(rootView: rootView)
+        header.rootView = rootView
+        header.view.backgroundColor = .clear
+        header.view.autoresizingMask = [.flexibleWidth]
+        let width = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
+        header.view.frame = CGRect(x: 0, y: 0, width: width, height: 161)
+        newsHeader = header
+        tableView.tableHeaderView = header.view
+    }
+
     
     private var _groupedAppsByNameFirstLetter: [String: [(source: ASRepository, app: ASRepository.App)]] = [:]
     private var _groupedAppsByDate: [String: [(source: ASRepository, app: ASRepository.App)]] = [:]
@@ -341,3 +350,4 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
         }
     }
 }}
+

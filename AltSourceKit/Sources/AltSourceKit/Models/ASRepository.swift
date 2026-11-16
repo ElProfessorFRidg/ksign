@@ -96,7 +96,9 @@ public struct ASRepository: Sendable, Decodable, Hashable, Identifiable {
         self.apps = apps
         self.featuredApps =
             try container.decodeIfPresent([App.ID].self, forKey: .featuredApps) ?? []
-        self.news = try container.decodeIfPresent([News].self, forKey: .news) ?? []
+        self.news = try container.decodeIfPresent([News].self, forKey: .news)?.map {
+            $0.addingVersionScreenshots(from: apps)
+        } ?? []
     }
 
     public enum CodingKeys: String, CodingKey {
@@ -182,6 +184,9 @@ extension ASRepository {
         public var screenshotURLs: [URL]?
         
         public var currentScreenshotURLs: [URL] {
+            if let urls = currentAppVersion?.currentScreenshotURLs, !urls.isEmpty {
+                return urls
+            }
             let direct = screenshotURLs ?? []
             let nested = (screenshots?.iPhone ?? []) + (screenshots?.iPad ?? [])
             return direct + nested.filter { !direct.contains($0) }
@@ -430,6 +435,14 @@ extension ASRepository {
             public var downloadURL: URL?
             public var size: UInt?
             public var minOSVersion: OSVersion?
+            public var screenshots: Screenshots?
+            public var screenshotURLs: [URL]?
+
+            public var currentScreenshotURLs: [URL] {
+                var seen = Set<URL>()
+                return ((screenshotURLs ?? []) + (screenshots?.iPhone ?? []) + (screenshots?.iPad ?? []))
+                    .filter { seen.insert($0).inserted }
+            }
 
             public init(from decoder: any Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -459,6 +472,8 @@ extension ASRepository {
                     OSVersion.self,
                     forKey: .minOSVersion
                 )
+                self.screenshots = try? container.decodeIfPresent(Screenshots.self, forKey: .screenshots)
+                self.screenshotURLs = try? container.decodeIfPresent([URL].self, forKey: .screenshotURLs)
             }
 
             static public func < (lhs: Self, rhs: Self) -> Bool {
@@ -470,6 +485,7 @@ extension ASRepository {
                 case version
                 case build = "buildVersion"
                 case date, localizedDescription, downloadURL, size, minOSVersion
+                case screenshots, screenshotURLs
             }
         }
     }
@@ -491,11 +507,41 @@ extension ASRepository {
         public var notify: Bool
 
         public var allImageURLs: [URL] {
-            var urls = imageURLs
-            if let imageURL, !urls.contains(imageURL) {
-                urls.insert(imageURL, at: 0)
+            var seen = Set<URL>()
+            return ([imageURL].compactMap { $0 } + imageURLs).filter { seen.insert($0).inserted }
+        }
+
+        /// A news banner can be followed by the screenshots of its exact release.
+        /// Matching a release URL or timestamp prevents old news showing the latest app's images.
+        fileprivate func addingVersionScreenshots(from apps: [App]) -> Self {
+            guard imageURLs.isEmpty, let appID, let app = apps.first(where: { $0.id == appID }) else {
+                return self
             }
-            return urls
+            let versions = app.versions ?? []
+            let release = Self.releaseIdentifier(url)
+            let matchingRelease = versions.first {
+                guard let url, let downloadURL = $0.downloadURL else { return false }
+                return url == downloadURL || (release != nil && release == Self.releaseIdentifier(downloadURL))
+            }
+            let matchingDate = versions.first {
+                guard let date = date?.date, let versionDate = $0.date?.date else { return false }
+                return date == versionDate
+            }
+            var result = self
+            if let version = matchingRelease ?? matchingDate {
+                result.imageURLs = version.currentScreenshotURLs
+            } else if let date = date?.date, date == app.currentDate?.date {
+                result.imageURLs = app.currentScreenshotURLs
+            }
+            return result
+        }
+
+        private static func releaseIdentifier(_ url: URL?) -> String? {
+            guard let url, let host = url.host else { return nil }
+            let parts = url.pathComponents
+            guard let index = parts.firstIndex(of: "releases"), parts.count > index + 2,
+                  parts[index + 1] == "tag" || parts[index + 1] == "download" else { return nil }
+            return host + parts[...index].joined(separator: "/") + "/" + parts[index + 2]
         }
 
         public init(from decoder: any Decoder) throws {
@@ -783,3 +829,4 @@ public struct OSVersion: Decodable, Hashable, CustomStringConvertible, Sendable 
         self.patchVersion = components[safe: 2] ?? 0
     }
 }
+

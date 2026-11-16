@@ -91,6 +91,9 @@ jobs:
         run: |
           sed -i '' -E "s/MARKETING_VERSION = [0-9.]+;/MARKETING_VERSION = ${{ steps.version.outputs.next }};/" Ksign.xcodeproj/project.pbxproj
 
+      - name: Check source loading and release galleries
+        run: bash scripts/check-source-loading.sh
+
       - name: Build
         run: |
           make
@@ -145,3 +148,4 @@ jobs:
             '{content: "**New release \($tag)!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
 
           curl -sS -H "Content-Type: application/json" -d @discord_payload.json "$DISCORD_WEBHOOK"
+
